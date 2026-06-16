@@ -1,0 +1,17 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "_comment": "Config DEV LOCAL lue par main.py (copie ce fichier en local.settings.json, déjà gitignoré). En prod (App Service), ces valeurs sont des App Settings.",
+
+    "ENVIRONMENT": "local",
+    "STORAGE_ACCOUNT_NAME": "stfenixforecast",
+    "CONTAINER_NAME": "fenixlake",
+    "GRDF_ROOT_FOLDER": "grdf",
+
+    "_comment_auth": "Deux façons de s'authentifier à l'ADLS : (1) laisser STORAGE_CONNECTION_STRING vide → DefaultAzureCredential (az login en local / managed identity en prod) ; (2) coller une connection string ci-dessous → PAS besoin de az login. Récupère-la : Portail Azure > Storage account stfenixforecast > Clés d'accès > chaîne de connexion. ⚠️ SECRET : ne jamais committer.",
+    "STORAGE_CONNECTION_STRING": "",
+
+    "ALLOWED_IPS": "",
+    "ALLOW_ALL_WHEN_UNSET": "true"
+  }
+}

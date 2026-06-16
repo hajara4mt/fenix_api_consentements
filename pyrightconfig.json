@@ -1,0 +1,13 @@
+{
+  "include": [
+    "shared",
+    "api",
+    "main"
+  ],
+  "extraPaths": [
+    "."
+  ],
+  "venvPath": ".",
+  "venv": "venv",
+  "pythonVersion": "3.11"
+}
