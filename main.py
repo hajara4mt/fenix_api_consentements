@@ -68,7 +68,7 @@ from api.grdf_droits_acces import (  # noqa: E402
 )
 
 app = FastAPI(
-    title="FENIX API — dev local",
+    title="Route consentement GRDF ENEDIS préprod",
     description="Route déclaration , suivi consentement & récuperation de données GRDF ENEDIS - Préprod .",
     version="dev",
 )
@@ -322,4 +322,4 @@ def delete_consent(id_pdl: str, request: Request):
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"api": "FENIX (dev local)", "docs": "/docs", "routes_grdf": "/api/grdf/droits-acces"}
+    return {"api": "Route consentement GRDF ENEDIS préprod", "docs": "/docs", "routes_grdf": "/api/grdf/droits-acces"}
