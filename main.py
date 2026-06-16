@@ -322,4 +322,4 @@ def delete_consent(id_pdl: str, request: Request):
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"api": "Route consentement GRDF ENEDIS préprod", "docs": "/docs", "routes_grdf": "/api/grdf/droits-acces"}
+    return {"api": "Route consentement GRDF ENEDIS préprod"}
