@@ -10,6 +10,8 @@ Principe de nommage (décision projet) :
 
 Règles métier (alignées sur declare_pce / NiFi) :
   - id_pce            : obligatoire, max 20 caractères (colonne varchar(20))
+  - platform_code     : obligatoire, max 10 caractères (varchar(10)) ; non
+    modifiable ensuite (absent de la whitelist PATCH)
   - raison_sociale_du_titulaire OU nom_titulaire : au moins l'un des deux
   - date_fin_droit_acces : > date_debut_droit_acces ET ≤ date_debut + 3 ans
   - au moins un des 4 périmètres à true
@@ -31,6 +33,7 @@ from dateutil.relativedelta import relativedelta
 # ----------------------------------------------------------------------
 
 ID_PCE_MAX_LEN = 20          # colonne id_pce varchar(20)
+PLATFORM_CODE_MAX_LEN = 10   # colonne platform_code varchar(10)
 PARTNER_MAX_LEN = 50
 # Le partenaire est restreint à une liste fermée (un seul aujourd'hui : ifpeb).
 PARTENAIRES_AUTORISES = {"ifpeb"}
@@ -146,6 +149,14 @@ def validate_create(body) -> tuple[str, dict]:
             "Le champ partner doit être l'un de : " + ", ".join(sorted(PARTENAIRES_AUTORISES)) + ".",
         )
 
+    # --- platform_code (varchar(10), obligatoire, non modifiable ensuite) ---
+    platform_code = str(_require(body, "platform_code")).strip()
+    if len(platform_code) > PLATFORM_CODE_MAX_LEN:
+        raise ValidationError(
+            "platform_code",
+            f"Le champ platform_code ne doit pas dépasser {PLATFORM_CODE_MAX_LEN} caractères.",
+        )
+
     # --- courriel_titulaire ---
     courriel = str(_require(body, "courriel_titulaire")).strip()
     if len(courriel) > COURRIEL_MAX_LEN or not _EMAIL_RE.match(courriel):
@@ -221,6 +232,7 @@ def validate_create(body) -> tuple[str, dict]:
     # --- record canonique (noms storage) ---
     fields = {
         "partner": partner,
+        "platform_code": platform_code,
         "courriel_titulaire": courriel,
         "code_postal": code_postal,
         "date_debut_droit_acces": d_debut.strftime("%Y-%m-%d"),

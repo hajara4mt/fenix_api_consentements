@@ -148,6 +148,7 @@ class DroitAccesCreate(BaseModel):
 
     id_pce: Optional[str] = None
     partner: Optional[str] = None
+    platform_code: Optional[str] = None
     courriel_titulaire: Optional[str] = None
     code_postal: Optional[str] = None
     date_debut_droit_acces: Optional[str] = None

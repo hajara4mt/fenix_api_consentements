@@ -93,8 +93,9 @@ curl -i "http://localhost:8000/api/consommations?provider=grdf&sensor_id=GI_TEST
 ## PATCH /grdf/droits-acces/{id_pce}
 
 Mise à jour **partielle** d'un droit d'accès. **Whitelist stricte** de 12 champs
-modifiables (les champs système/pipeline, `id_pce`, `partner`, `role_tiers` sont
-**non-modifiables**). Une modif remet le PCE en file : `etat="nouveau"`, compteur
+modifiables (les champs système/pipeline, `id_pce`, `partner`, `platform_code`,
+`role_tiers` sont **non-modifiables**). Une modif remet le PCE en file :
+`etat="nouveau"`, compteur
 réinitialisé.
 
 - **Modifiables** : `courriel_titulaire`, `code_postal`, `date_debut_droit_acces`,
@@ -162,6 +163,7 @@ stocke pas encore de code propre ; cf. `api/adict_messages.py`).
 {
   "id_pce": "GI12345678901234",
   "partner": "ifpeb",
+  "platform_code": "PF01",
   "statut": "Active",
   "perim_donnees_contractuelles": true,
   "perim_donnees_techniques": true,
@@ -192,7 +194,8 @@ API mais les noms canoniques du storage :
 
 ### Champs du body
 
-**Obligatoires** : `id_pce` (≤ 20 car.), `partner` (≤ 50), `courriel_titulaire`
+**Obligatoires** : `id_pce` (≤ 20 car.), `partner` (≤ 50), `platform_code`
+(≤ 10 car., **non modifiable** ensuite), `courriel_titulaire`
 (email, ≤ 100), `code_postal` (5 chiffres), `date_debut_droit_acces`,
 `date_fin_droit_acces` (≤ début + 3 ans), `perim_donnees_conso_debut`,
 `perim_donnees_conso_fin`, et **au moins un** de `raison_sociale_du_titulaire`
@@ -310,6 +313,7 @@ curl -i -X POST http://localhost:8000/api/grdf/droits-acces \
   -d '{
     "id_pce": "GI_TEST_0001",
     "partner": "ifpeb",
+    "platform_code": "PF01",
     "courriel_titulaire": "test@exemple.fr",
     "code_postal": "75001",
     "date_debut_droit_acces": "2026-05-01",

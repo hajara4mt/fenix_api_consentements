@@ -21,6 +21,7 @@ def _valid_body(**overrides) -> dict:
     body = {
         "id_pce": "GI12345678901234",
         "partner": "ifpeb",
+        "platform_code": "PF01",
         "courriel_titulaire": "contact@exemple.fr",
         "code_postal": "75001",
         "date_debut_droit_acces": "2026-05-01",
@@ -68,6 +69,14 @@ def test_validate_ok_retourne_id_et_fields():
     # role_tiers / etat NE sont PAS posés par la validation (handler s'en charge)
     assert "role_tiers" not in fields
     assert "etat_droit_acces" not in fields
+    # platform_code repris tel quel dans les champs canoniques
+    assert fields["platform_code"] == "PF01"
+
+
+def test_validate_platform_code_trop_long():
+    with pytest.raises(ValidationError) as exc:
+        validate_create(_valid_body(platform_code="ABCDEFGHIJK"))  # 11 car. > 10
+    assert exc.value.champ == "platform_code"
 
 
 def test_validate_defauts_perimetres():
@@ -103,7 +112,7 @@ def test_validate_un_seul_titulaire_suffit():
 # ----------------------------------------------------------------------
 
 @pytest.mark.parametrize("champ", [
-    "id_pce", "partner", "courriel_titulaire", "code_postal",
+    "id_pce", "partner", "platform_code", "courriel_titulaire", "code_postal",
     "date_debut_droit_acces", "date_fin_droit_acces",
     "perim_donnees_conso_debut", "perim_donnees_conso_fin",
 ])
@@ -344,6 +353,7 @@ def _stored_record(**overrides) -> dict:
     rec = {
         "id_pce": "GI12345678901234",
         "partner": "ifpeb",
+        "platform_code": "PF01",
         "etat_droit_acces": "Active",
         "perim_donnees_contractuelles": True,
         "perim_donnees_techniques": True,
@@ -386,6 +396,24 @@ def test_handle_get_format_date_simple(mocker):
     assert status == 200
     assert body["date_creation"] == "2026-06-16 09:03:16"
     assert body["derniere_maj"] == "2026-06-16 09:03:16"
+
+
+def test_handle_get_expose_platform_code(mocker):
+    """platform_code est exposé dans le GET détail."""
+    import api.grdf_droits_acces as h
+    mocker.patch.object(h.registry_dao, "get", return_value=_stored_record(platform_code="PF42"))
+    body, status = h.handle_get(FakeReq(None), "GI12345678901234")
+    assert status == 200
+    assert body["platform_code"] == "PF42"
+
+
+def test_handle_list_expose_platform_code(mocker):
+    """platform_code est exposé dans chaque item de la liste (forme allégée)."""
+    import api.grdf_droits_acces as h
+    mocker.patch.object(h.registry_dao, "list_all", return_value=[_stored_record(platform_code="PF42")])
+    body, status = h.handle_list(FakeReq(None))
+    assert status == 200
+    assert body["resultats"][0]["platform_code"] == "PF42"
 
 
 def test_handle_get_statut_repli(mocker):
@@ -635,6 +663,19 @@ def test_handle_patch_400_partner_non_modifiable(mocker):
     body, status = h.handle_patch(FakeReq({"partner": "autre"}), "GI12345678901234")
     assert status == 400
     assert body["champ"] == "partner"
+
+
+def test_handle_patch_400_platform_code_non_modifiable(mocker):
+    """platform_code n'est pas dans la whitelist PATCH → CHAMP_NON_MODIFIABLE."""
+    import api.grdf_droits_acces as h
+    upsert = mocker.patch.object(h.registry_dao, "upsert")
+    mocker.patch.object(h.registry_dao, "get", return_value=_stored_record())
+
+    body, status = h.handle_patch(FakeReq({"platform_code": "PF99"}), "GI12345678901234")
+    assert status == 400
+    assert body["erreur"] == "CHAMP_NON_MODIFIABLE"
+    assert body["champ"] == "platform_code"
+    upsert.assert_not_called()
 
 
 def test_handle_patch_400_email_invalide(mocker):

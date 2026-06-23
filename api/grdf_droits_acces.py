@@ -46,6 +46,7 @@ ROLE_TIERS_DEFAUT = "AUTORISE_CONTRAT_FOURNITURE"
 ALLOWED_CREATE_FIELDS = {
     "id_pce",
     "partner",
+    "platform_code",
     "courriel_titulaire",
     "code_postal",
     "date_debut_droit_acces",
@@ -197,13 +198,14 @@ def _serialize_pce(record: dict, id_pce: Optional[str] = None, light: bool = Fal
     """
     Sérialise un enregistrement PCE en réponse à forme CONSTANTE.
 
-    light=False (GET détail) : 11 champs.
-    light=True  (items de liste) : 9 champs (omet date_debut_droit_acces et
+    light=False (GET détail) : 12 champs.
+    light=True  (items de liste) : 10 champs (omet date_debut_droit_acces et
     date_creation).
     """
     out = {
         "id_pce": id_pce or _str_or_none(record.get("id_pce")),
         "partner": _str_or_none(record.get("partner")),
+        "platform_code": _str_or_none(record.get("platform_code")),
         "statut": to_statut_expose(record.get("etat_droit_acces")),
         "perim_donnees_contractuelles": _bool_or_none(record.get("perim_donnees_contractuelles")),
         "perim_donnees_techniques": _bool_or_none(record.get("perim_donnees_techniques")),
