@@ -65,7 +65,8 @@ python -m uvicorn main:app --reload
 > (`shared/adls_client.py` + `schemas.py` + `settings.py`). Statuts exposés = les
 > 7 internes (`nouveau`/`processing`/`traite`/`erreur`/`partiel`/`revoque`/`résilié`).
 > Booléens stockés en `"true"`/`"false"`. `POST` fait : validation → 409 si
-> `id_pdl` existe → `append_rows("pdl", …)` (ligne complète 21 colonnes).
+> `id_pdl` existe → `append_rows("pdl", …)` (ligne complète 22 colonnes, dont
+> `platform_code` varchar(10) obligatoire & non modifiable, comme GRDF).
 
 ## GET /consommations
 
@@ -129,12 +130,12 @@ curl -i -X POST http://localhost:8000/api/grdf/droits-acces/GI_TEST_0001/retry
 
 ## GET /grdf/droits-acces (liste paginée)
 
-Query params (optionnels) : `statut` (un des 5), `limit` (1–100, défaut 50),
+Query params (optionnels) : `statut` (un des 8 internes), `limit` (1–100, défaut 50),
 `offset` (≥0, défaut 0). Réponse : `{ total, limit, offset, resultats: [...] }`.
 Items en **forme allégée** (9 champs : sans `date_debut_droit_acces`/`date_creation`).
 
-- Filtre `statut` = **reverse-mapping** : `?statut=Obsolète` ramène aussi les
-  états internes `Révoquée`/`résilié` ; `?statut=A valider` ramène `A revérifier`.
+- Filtre `statut` = **égalité exacte** sur l'un des 8 statuts internes bruts
+  (plus de reverse-mapping : `?statut=Révoquée` ne ramène QUE `Révoquée`).
 - `400` `CHAMP_INVALIDE` (champ `statut`/`limit`/`offset`) — pagination **stricte**.
 - Tri stable par `id_pce`. Pagination en mémoire (lecture complète du parquet).
 
@@ -147,8 +148,8 @@ curl -i "http://localhost:8000/api/grdf/droits-acces?statut=Active&limit=20&offs
 Consulte le statut d'un droit d'accès. **Forme de réponse constante** (mêmes
 champs toujours présents, `null` si non applicable).
 
-`statut` ∈ { `nouveau`, `A valider`, `Active`, `Refusée`, `Obsolète` } (états
-internes exposés ; `A revérifier`→`A valider`, `Révoquée`/`résilié`→`Obsolète`).
+`statut` ∈ les **8 états internes BRUTS** : `nouveau`, `A valider`, `A revérifier`,
+`Active`, `Refusée`, `Révoquée`, `Obsolète`, `résilié` (exposés tels quels, **sans mapping**).
 
 `message_erreur` : traduit depuis les codes ADICT (best-effort — le pipeline ne
 stocke pas encore de code propre ; cf. `api/adict_messages.py`).
@@ -229,7 +230,6 @@ api/
   consos_reader.py         # lecture du parquet consos_publiees
   validation.py            # règles de validation + normalisation (create + patch)
   ip_filter.py             # whitelist IP applicative (ALLOWED_IPS)
-  status_mapping.py        # état interne → statut exposé (5 statuts)
   adict_messages.py        # traduction codes ADICT → message_erreur
 shared/                    # VENDORÉ depuis pipeline-grdf-preprod
   config.py
@@ -250,7 +250,7 @@ corruption en cas de concurrence.
 ## DELETE /grdf/droits-acces/{id_pce}
 
 **Révocation logique** — ne supprime PAS la ligne : passe `etat_droit_acces` à
-`Révoquée` (via `registry_dao.upsert`, lease-safe). Statut exposé → `Obsolète`.
+`Révoquée` (via `registry_dao.upsert`, lease-safe). Statut exposé → `Révoquée` (brut).
 
 > ⚠️ **Aucun batch ne résilie chez GRDF à ce jour.** La route enregistre la
 > révocation dans le registre ; la résiliation effective côté ADICT devra être
@@ -259,7 +259,7 @@ corruption en cas de concurrence.
 > nettoyage dev uniquement.)
 
 - Révocable si l'état ∈ { `Active`, `nouveau`, `A valider` }.
-- `200` : `{ id_pce, statut:"Obsolète", message, derniere_maj }`.
+- `200` : `{ id_pce, statut:"Révoquée", message, derniere_maj }`.
 - `403` `IP_NON_AUTORISEE` · `404` `PCE_INTROUVABLE` · `404` `PCE_DEJA_REVOQUE`
   (état `Révoquée`/`résilié`) · `409` `STATUT_INCOMPATIBLE` (autre état).
 

@@ -5,7 +5,7 @@ Handlers des routes /enedis/consent (consentements PDL).
 ⚠️ Spécificités Enedis vs GRDF :
   - stockage Delta Lake (append_rows / update_rows), pas de lease
   - booléens en strings "true"/"false"
-  - la ligne écrite doit contenir TOUTES les 21 colonnes du schéma pdl
+  - la ligne écrite doit contenir TOUTES les 22 colonnes du schéma pdl
     (append_rows valide colonnes manquantes ET en trop)
 
 Itération courante : POST (création). Le reste (GET/PATCH/DELETE/retry/list)
@@ -90,7 +90,8 @@ def handle_create_consent(req) -> tuple[dict, int]:
             "statut": str(existant.iloc[0].get("statut")),
         }, 409
 
-    # --- 5. Construction de la ligne COMPLÈTE (21 colonnes) + append ---
+    # --- 5. Construction de la ligne COMPLÈTE (22 colonnes) + append ---
+    # platform_code est déjà dans `fields` (ajouté par validate_consent).
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     row = {
         **fields,
@@ -185,6 +186,7 @@ def _serialize_pdl(row) -> dict:
     return {
         "id_pdl": _str_or_none(row.get("id_pdl")),
         "partner": _str_or_none(row.get("partner")),
+        "platform_code": _str_or_none(row.get("platform_code")),
         "statut": _str_or_none(row.get("statut")),
         "statut_cdc": _bool_or_none(row.get("statut_cdc")),
         "statut_dm": _bool_or_none(row.get("statut_dm")),

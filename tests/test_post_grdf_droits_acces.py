@@ -274,17 +274,17 @@ def test_handle_create_409_pce_existant(mocker):
     assert body["statut"] == "Active"  # exposé tel quel
 
 
-def test_handle_create_409_repli_statut(mocker):
+def test_handle_create_409_statut_brut(mocker):
     import api.grdf_droits_acces as handler
 
     mocker.patch.object(handler.registry_dao, "insert", side_effect=ValueError("existe déjà"))
-    # état interne hors des 5 → replié : Révoquée → Obsolète
+    # statut exposé = état interne BRUT (plus de mapping) : Révoquée reste Révoquée
     mocker.patch.object(handler.registry_dao, "get", return_value={"etat_droit_acces": "Révoquée"})
 
     body, status = handler.handle_create(FakeReq(_valid_body()))
 
     assert status == 409
-    assert body["statut"] == "Obsolète"
+    assert body["statut"] == "Révoquée"
 
 
 # ----------------------------------------------------------------------
@@ -416,16 +416,16 @@ def test_handle_list_expose_platform_code(mocker):
     assert body["resultats"][0]["platform_code"] == "PF42"
 
 
-def test_handle_get_statut_repli(mocker):
+def test_handle_get_statut_brut(mocker):
     import api.grdf_droits_acces as handler
-    # A revérifier → A valider (repli)
+    # statut exposé BRUT (plus de repli) : A revérifier reste A revérifier
     mocker.patch.object(
         handler.registry_dao, "get",
         return_value=_stored_record(etat_droit_acces="A revérifier"),
     )
     body, status = handler.handle_get(FakeReq(None), "GI12345678901234")
     assert status == 200
-    assert body["statut"] == "A valider"
+    assert body["statut"] == "A revérifier"
 
 
 def test_handle_get_message_erreur_traduit(mocker):
@@ -485,7 +485,7 @@ def test_handle_revoke_200(mocker):
     body, status = handler.handle_revoke(FakeReq(None), "GI12345678901234")
 
     assert status == 200
-    assert body["statut"] == "Obsolète"            # Révoquée → Obsolète
+    assert body["statut"] == "Révoquée"            # statut BRUT (plus de repli vers Obsolète)
     assert body["derniere_maj"] == "2026-06-15 09:00:00"   # format simple
     # upsert pose bien l'état Révoquée (pas de suppression physique)
     args, kwargs = upsert.call_args
@@ -842,27 +842,29 @@ def test_handle_list_200_sans_filtre(mocker):
     assert "date_fin_droit_acces" in item and "derniere_maj" in item
 
 
-def test_handle_list_filtre_statut_reverse_map(mocker):
+def test_handle_list_filtre_statut_brut(mocker):
     import api.grdf_droits_acces as h
-    # Obsolète exposé = états internes Obsolète + Révoquée + résilié
+    # filtre = égalité simple sur le statut BRUT : "Obsolète" ne matche QUE Obsolète
+    # (plus de repli : Révoquée et résilié ne sont PAS inclus)
     mocker.patch.object(h.registry_dao, "list_all",
                         return_value=_records(["Active", "Révoquée", "résilié", "Obsolète", "nouveau"]))
 
     body, status = h.handle_list(FakeReq(None, params={"statut": "Obsolète"}))
 
     assert status == 200
-    assert body["total"] == 3
+    assert body["total"] == 1
     assert all(it["statut"] == "Obsolète" for it in body["resultats"])
 
 
-def test_handle_list_filtre_a_valider_reverse_map(mocker):
+def test_handle_list_filtre_revoquee_brut(mocker):
     import api.grdf_droits_acces as h
-    # A valider exposé = A valider + A revérifier
+    # on peut désormais filtrer sur Révoquée directement (statut interne brut)
     mocker.patch.object(h.registry_dao, "list_all",
-                        return_value=_records(["A valider", "A revérifier", "Active"]))
+                        return_value=_records(["A valider", "A revérifier", "Révoquée", "Active"]))
 
-    body, _ = h.handle_list(FakeReq(None, params={"statut": "A valider"}))
-    assert body["total"] == 2
+    body, _ = h.handle_list(FakeReq(None, params={"statut": "Révoquée"}))
+    assert body["total"] == 1
+    assert body["resultats"][0]["statut"] == "Révoquée"
 
 
 def test_handle_list_pagination(mocker):

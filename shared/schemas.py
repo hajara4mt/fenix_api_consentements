@@ -141,7 +141,7 @@ def _meta(mysql_type: str, max_length: int | None = None,
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Table 1 : pdl  (20 colonnes)
+# Table 1 : pdl  (22 colonnes)
 # ─────────────────────────────────────────────────────────────────────────
 SCHEMA_PDL = pa.schema([
     # Identifiants & métier (remplis par source externe)
@@ -149,6 +149,11 @@ SCHEMA_PDL = pa.schema([
              metadata=_meta("varchar(14)", max_length=14)),
     pa.field("partner",                 pa.string(), nullable=True,
              metadata=_meta("varchar(100)", max_length=100)),
+    # platform_code : code de la plateforme d'origine (métadonnée, saisi à la
+    # création). NOT NULL + non modifiable ensuite (pendant API). Équivalent du
+    # platform_code GRDF.
+    pa.field("platform_code",           pa.string(), nullable=False,
+             metadata=_meta("varchar(10)", max_length=10)),
     pa.field("date_signature_mandat",   pa.date32(), nullable=True,
              metadata=_meta("date")),
     pa.field("date_debut_autorisation", pa.date32(), nullable=True,

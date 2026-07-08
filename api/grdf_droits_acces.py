@@ -30,7 +30,6 @@ from shared import registry_dao
 
 from .adict_messages import resolve_message_erreur
 from .ip_filter import is_ip_allowed
-from .status_mapping import STATUTS_EXPOSES, to_statut_expose
 from .validation import ValidationError, validate_create, validate_patch
 
 logger = logging.getLogger(__name__)
@@ -39,6 +38,14 @@ logger = logging.getLogger(__name__)
 # role_tiers n'est pas saisi par le métier : tout PCE créé via cette route reçoit
 # cette valeur fixe (décision projet, alignée DB Energisme).
 ROLE_TIERS_DEFAUT = "AUTORISE_CONTRAT_FOURNITURE"
+
+# Statuts exposés = les 8 états internes BRUTS (etat_droit_acces), tels quels,
+# SANS mapping (décision projet : aligné sur Enedis qui expose ses statuts bruts).
+# Ordre = cycle de vie (cf. registry_dao.DROIT_STATES).
+STATUTS_INTERNES = (
+    "nouveau", "A valider", "A revérifier", "Active",
+    "Refusée", "Révoquée", "Obsolète", "résilié",
+)
 
 # Schéma STRICT du body de création : seuls ces champs sont acceptés.
 # Tout champ hors de cette liste → 400 CHAMP_INCONNU (pas d'ajout de colonne).
@@ -116,7 +123,7 @@ def handle_create(req) -> tuple[dict, int]:
             "erreur": "PCE_EXISTANT",
             "message": "Un droit d'accès existe déjà pour ce PCE.",
             "id_pce": id_pce,
-            "statut": to_statut_expose(existant.get("etat_droit_acces")),
+            "statut": _statut_brut(existant.get("etat_droit_acces")),
         }, 409
     except Exception:
         logger.exception("Erreur interne lors de l'insertion du PCE %s", id_pce)
@@ -138,6 +145,11 @@ def handle_create(req) -> tuple[dict, int]:
 # ----------------------------------------------------------------------
 # Helpers de nettoyage des valeurs parquet (numpy/NaN → JSON-safe)
 # ----------------------------------------------------------------------
+
+def _statut_brut(etat) -> str:
+    """Statut interne exposé TEL QUEL (brut, sans mapping). Défaut 'nouveau' si vide."""
+    return _str_or_none(etat) or "nouveau"
+
 
 def _str_or_none(value) -> Optional[str]:
     """Valeur → str non vide, ou None (gère NaN pandas)."""
@@ -206,7 +218,7 @@ def _serialize_pce(record: dict, id_pce: Optional[str] = None, light: bool = Fal
         "id_pce": id_pce or _str_or_none(record.get("id_pce")),
         "partner": _str_or_none(record.get("partner")),
         "platform_code": _str_or_none(record.get("platform_code")),
-        "statut": to_statut_expose(record.get("etat_droit_acces")),
+        "statut": _statut_brut(record.get("etat_droit_acces")),
         "perim_donnees_contractuelles": _bool_or_none(record.get("perim_donnees_contractuelles")),
         "perim_donnees_techniques": _bool_or_none(record.get("perim_donnees_techniques")),
         "perim_donnees_informatives": _bool_or_none(record.get("perim_donnees_informatives")),
@@ -307,7 +319,7 @@ def handle_revoke(req, id_pce: str) -> tuple[dict, int]:
             "erreur": "STATUT_INCOMPATIBLE",
             "message": "Seul un droit d'accès Active, nouveau ou A valider peut être révoqué.",
             "id_pce": id_pce,
-            "statut": to_statut_expose(etat),
+            "statut": etat,
         }, 409
 
     # --- 4. Révocation logique (upsert lease-safe) ---
@@ -327,7 +339,7 @@ def handle_revoke(req, id_pce: str) -> tuple[dict, int]:
     logger.info("PCE %s révoqué (etat='Révoquée')", id_pce)
     return {
         "id_pce": id_pce,
-        "statut": to_statut_expose(updated.get("etat_droit_acces") or "Révoquée"),
+        "statut": _str_or_none(updated.get("etat_droit_acces")) or "Révoquée",
         "message": "Révocation enregistrée. La résiliation auprès de GRDF sera traitée par un batch ultérieur.",
         "derniere_maj": _fmt_dt(updated.get("derniere_maj")) or _fmt_dt(now_iso),
     }, 200
@@ -484,7 +496,7 @@ def handle_retry(req, id_pce: str) -> tuple[dict, int]:
             "erreur": "STATUT_INCOMPATIBLE",
             "message": "Seul un droit d'accès en erreur (A revérifier) ou Refusée peut être relancé.",
             "id_pce": id_pce,
-            "statut": to_statut_expose(etat),
+            "statut": etat,
         }, 409
 
     # --- 4. Relance : reset état + compteur + message ---
@@ -506,7 +518,7 @@ def handle_retry(req, id_pce: str) -> tuple[dict, int]:
     logger.info("PCE %s relancé (etat='nouveau', compteur réinitialisé)", id_pce)
     return {
         "id_pce": id_pce,
-        "statut": to_statut_expose(updated.get("etat_droit_acces") or "nouveau"),
+        "statut": _str_or_none(updated.get("etat_droit_acces")) or "nouveau",
         "message": "Relance enregistrée. Re-traitement prévu lors du prochain batch de nuit.",
         "derniere_maj": _fmt_dt(updated.get("derniere_maj")) or _fmt_dt(now_iso),
     }, 200
@@ -548,9 +560,9 @@ def handle_list(req) -> tuple[dict, int]:
     Liste paginée des PCE (forme d'item ALLÉGÉE, 9 champs).
 
     Pipeline : filtre IP (403) → validation params (400) → filtrage statut
-    (reverse-mapping) → tri id_pce → pagination → 200.
+    (égalité exacte sur le statut brut) → tri id_pce → pagination → 200.
 
-    Query params : statut (un des 5 exposés), limit (1..100, déf. 50),
+    Query params : statut (un des 8 internes), limit (1..100, déf. 50),
     offset (≥0, déf. 0).
     """
     # --- 1. Filtre IP ---
@@ -566,10 +578,10 @@ def handle_list(req) -> tuple[dict, int]:
     statut = params.get("statut")
     statut = statut.strip() if isinstance(statut, str) else statut
     if statut:
-        if statut not in STATUTS_EXPOSES:
+        if statut not in STATUTS_INTERNES:
             return _erreur_champ(
                 "statut",
-                "statut doit être l'un de : " + ", ".join(STATUTS_EXPOSES) + ".",
+                "statut doit être l'un de : " + ", ".join(STATUTS_INTERNES) + ".",
             )
     else:
         statut = None
@@ -587,12 +599,12 @@ def handle_list(req) -> tuple[dict, int]:
     if offset is None:
         offset = 0
 
-    # --- 3. Chargement + filtrage (reverse-mapping du statut exposé) ---
+    # --- 3. Chargement + filtrage (égalité simple sur le statut brut) ---
     records = registry_dao.list_all()
     if statut:
         records = [
             r for r in records
-            if to_statut_expose(r.get("etat_droit_acces")) == statut
+            if _str_or_none(r.get("etat_droit_acces")) == statut
         ]
 
     # --- 4. Tri stable (pagination cohérente) puis découpe ---

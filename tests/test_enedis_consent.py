@@ -20,6 +20,7 @@ def _valid_body(**overrides) -> dict:
     body = {
         "id_pdl": "00000000001965",
         "partner": "ifpeb",
+        "platform_code": "PF01",
         "date_signature_mandat": "2025-06-05",
         "date_debut_autorisation": "2016-01-01",
         "date_fin_autorisation": "2035-06-05",
@@ -130,6 +131,25 @@ def test_validate_id_pdl_varchar_ok():
     assert fields["id_pdl"] == "PDL_ABC_12345"
 
 
+def test_validate_platform_code_present():
+    _, fields = validate_consent(_valid_body(platform_code="PF42"))
+    assert fields["platform_code"] == "PF42"
+
+
+def test_validate_platform_code_obligatoire():
+    body = _valid_body()
+    del body["platform_code"]
+    with pytest.raises(ValidationError) as e:
+        validate_consent(body)
+    assert e.value.champ == "platform_code"
+
+
+def test_validate_platform_code_trop_long():
+    with pytest.raises(ValidationError) as e:
+        validate_consent(_valid_body(platform_code="ABCDEFGHIJK"))  # 11 car. > 10
+    assert e.value.champ == "platform_code"
+
+
 def test_validate_civilite_invalide():
     with pytest.raises(ValidationError) as e:
         validate_consent(_valid_body(civilite="X"))
@@ -166,14 +186,16 @@ def test_create_consent_201(mocker):
     assert status == 201
     assert body["statut"] == "nouveau"
     assert body["id_pdl"] == "00000000001965"
-    # la ligne écrite a 21 colonnes, statut nouveau, booléens en string
+    # la ligne écrite a 22 colonnes, statut nouveau, booléens en string
     df = append.call_args.args[1]
     row = df.iloc[0]
     assert row["statut"] == "nouveau"
     assert row["soutirage"] == "true"
     assert row["injection"] == "false"
+    assert row["platform_code"] == "PF01"
     assert set(df.columns) == {
-        "id_pdl", "partner", "date_signature_mandat", "date_debut_autorisation",
+        "id_pdl", "partner", "platform_code", "date_signature_mandat",
+        "date_debut_autorisation",
         "date_fin_autorisation", "raison_sociale", "civilite", "nom", "prenom",
         "date_creation", "date_modification", "injection", "soutirage", "get_cdc",
         "get_dm", "statut_cdc", "statut_dm", "date_premiere_valeur_dm", "statut",
@@ -240,7 +262,8 @@ def test_create_consent_403_ip(mocker, monkeypatch):
 
 def _pdl_row(**over):
     base = {
-        "id_pdl": "00000000001965", "partner": "ifpeb", "statut": "traite",
+        "id_pdl": "00000000001965", "partner": "ifpeb", "platform_code": "PF01",
+        "statut": "traite",
         "statut_cdc": "true", "statut_dm": "false",
         "date_creation": pd.Timestamp("2026-04-14 10:00:00"),
         "date_modification": pd.Timestamp("2026-04-15 02:01:30"),
@@ -258,12 +281,13 @@ def test_get_consent_200(mocker):
 
     assert status == 200
     assert body["statut"] == "traite"
+    assert body["platform_code"] == "PF01"   # exposé dans le GET détail
     assert body["statut_cdc"] is True       # "true" → bool JSON
     assert body["statut_dm"] is False
     assert body["date_creation"] == "2026-04-14 10:00:00"
     assert body["message_erreur"] is None
     assert set(body.keys()) == {
-        "id_pdl", "partner", "statut", "statut_cdc", "statut_dm",
+        "id_pdl", "partner", "platform_code", "statut", "statut_cdc", "statut_dm",
         "message_erreur", "date_creation", "date_modification",
     }
 
@@ -383,7 +407,8 @@ def test_retry_consent_403_ip(mocker, monkeypatch):
 def _pdl_full_row(**over):
     from datetime import date
     base = {
-        "id_pdl": "00000000001965", "partner": "ifpeb", "statut": "traite",
+        "id_pdl": "00000000001965", "partner": "ifpeb", "platform_code": "PF01",
+        "statut": "traite",
         "date_signature_mandat": date(2025, 6, 5),
         "date_debut_autorisation": date(2016, 1, 1),
         "date_fin_autorisation": date(2035, 6, 5),
@@ -412,9 +437,9 @@ def test_patch_consent_200_ressource_complete(mocker):
     body, status = h.handle_patch_consent(FakeReq({"date_fin_autorisation": "2040-06-05"}), "00000000001965")
 
     assert status == 200
-    assert body["statut"] == "nouveau"                       # ressource complète (8 champs)
+    assert body["statut"] == "nouveau"                       # ressource complète (9 champs)
     assert set(body.keys()) == {
-        "id_pdl", "partner", "statut", "statut_cdc", "statut_dm",
+        "id_pdl", "partner", "platform_code", "statut", "statut_cdc", "statut_dm",
         "message_erreur", "date_creation", "date_modification",
     }
     # UPDATE : champ modifié (DATE literal) + statut nouveau + erreur null
@@ -435,6 +460,18 @@ def test_patch_consent_400_champ_non_modifiable(mocker):
     assert status == 400
     assert body["erreur"] == "CHAMP_NON_MODIFIABLE"
     assert body["champ"] == "partner"
+    update.assert_not_called()
+
+
+def test_patch_consent_400_platform_code_non_modifiable(mocker):
+    import api.enedis_consent as h
+    update = mocker.patch.object(h.adls_client, "update_rows")
+    mocker.patch.object(h.adls_client, "read_table_filtered", return_value=pd.DataFrame([_pdl_full_row()]))
+
+    body, status = h.handle_patch_consent(FakeReq({"platform_code": "PF99"}), "00000000001965")
+    assert status == 400
+    assert body["erreur"] == "CHAMP_NON_MODIFIABLE"
+    assert body["champ"] == "platform_code"
     update.assert_not_called()
 
 
@@ -591,9 +628,10 @@ def test_list_consents_200_sans_filtre(mocker):
     assert body["total"] == 3
     assert body["limit"] == 50
     assert len(body["resultats"]) == 3
-    # item = même forme que le GET détail (8 champs)
+    # item = même forme que le GET détail (9 champs)
+    assert body["resultats"][0]["platform_code"] == "PF01"
     assert set(body["resultats"][0].keys()) == {
-        "id_pdl", "partner", "statut", "statut_cdc", "statut_dm",
+        "id_pdl", "partner", "platform_code", "statut", "statut_cdc", "statut_dm",
         "message_erreur", "date_creation", "date_modification",
     }
 

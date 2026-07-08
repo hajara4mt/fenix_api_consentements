@@ -24,6 +24,7 @@ Les routes appellent les mêmes handlers que les tests (api/).
 import json
 import os
 import sys
+from datetime import date
 from typing import Optional
 
 # --- Charger local.settings.json dans l'env AVANT d'importer les handlers ---
@@ -94,14 +95,21 @@ async def _on_validation_error(request: Request, exc: RequestValidationError):
                     "champ": champ,
                 },
             )
-    # Corps JSON / type de champ malformé → notre 400 CHAMP_INVALIDE
-    return JSONResponse(
-        status_code=400,
-        content={
-            "erreur": "CHAMP_INVALIDE",
-            "message": "Requête invalide (corps JSON ou paramètre malformé).",
-        },
-    )
+    # Autre erreur de champ (type/format) → notre 400 CHAMP_INVALIDE (avec le champ)
+    err = exc.errors()[0] if exc.errors() else {}
+    loc = [p for p in (err.get("loc") or []) if p != "body"]
+    champ = loc[-1] if loc else None
+    etype = str(err.get("type") or "")
+    if champ and "date" in etype:
+        message = f"Le champ {champ} doit être une date au format YYYY-MM-DD."
+    elif champ:
+        message = f"Le champ {champ} est invalide."
+    else:
+        message = "Requête invalide (corps JSON ou paramètre malformé)."
+    content = {"erreur": "CHAMP_INVALIDE", "message": message}
+    if champ:
+        content["champ"] = champ
+    return JSONResponse(status_code=400, content=content)
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -151,10 +159,10 @@ class DroitAccesCreate(BaseModel):
     platform_code: Optional[str] = None
     courriel_titulaire: Optional[str] = None
     code_postal: Optional[str] = None
-    date_debut_droit_acces: Optional[str] = None
-    date_fin_droit_acces: Optional[str] = None
-    perim_donnees_conso_debut: Optional[str] = None
-    perim_donnees_conso_fin: Optional[str] = None
+    date_debut_droit_acces: Optional[date] = None
+    date_fin_droit_acces: Optional[date] = None
+    perim_donnees_conso_debut: Optional[date] = None
+    perim_donnees_conso_fin: Optional[date] = None
     raison_sociale_du_titulaire: Optional[str] = None
     nom_titulaire: Optional[str] = None
     perim_donnees_contractuelles: Optional[bool] = None
@@ -169,10 +177,10 @@ class DroitAccesPatch(BaseModel):
 
     courriel_titulaire: Optional[str] = None
     code_postal: Optional[str] = None
-    date_debut_droit_acces: Optional[str] = None
-    date_fin_droit_acces: Optional[str] = None
-    perim_donnees_conso_debut: Optional[str] = None
-    perim_donnees_conso_fin: Optional[str] = None
+    date_debut_droit_acces: Optional[date] = None
+    date_fin_droit_acces: Optional[date] = None
+    perim_donnees_conso_debut: Optional[date] = None
+    perim_donnees_conso_fin: Optional[date] = None
     raison_sociale_du_titulaire: Optional[str] = None
     nom_titulaire: Optional[str] = None
     perim_donnees_contractuelles: Optional[bool] = None
@@ -187,9 +195,10 @@ class ConsentCreate(BaseModel):
 
     id_pdl: Optional[str] = None
     partner: Optional[str] = None
-    date_signature_mandat: Optional[str] = None
-    date_debut_autorisation: Optional[str] = None
-    date_fin_autorisation: Optional[str] = None
+    platform_code: Optional[str] = None
+    date_signature_mandat: Optional[date] = None
+    date_debut_autorisation: Optional[date] = None
+    date_fin_autorisation: Optional[date] = None
     raison_sociale: Optional[str] = None
     civilite: Optional[str] = None
     nom: Optional[str] = None
@@ -204,9 +213,9 @@ class ConsentPatch(BaseModel):
     """Body de PATCH /enedis/consent/{id_pdl} — uniquement les champs modifiables."""
     model_config = ConfigDict(extra="forbid")
 
-    date_signature_mandat: Optional[str] = None
-    date_debut_autorisation: Optional[str] = None
-    date_fin_autorisation: Optional[str] = None
+    date_signature_mandat: Optional[date] = None
+    date_debut_autorisation: Optional[date] = None
+    date_fin_autorisation: Optional[date] = None
     raison_sociale: Optional[str] = None
     civilite: Optional[str] = None
     nom: Optional[str] = None
@@ -218,8 +227,13 @@ class ConsentPatch(BaseModel):
 
 
 def _model_body(payload: BaseModel) -> dict:
-    """Dict des champs RÉELLEMENT envoyés (les champs omis ne sont pas inclus)."""
-    return payload.model_dump(exclude_unset=True)
+    """Dict des champs RÉELLEMENT envoyés (les champs omis ne sont pas inclus).
+
+    mode="json" : les champs `date` (Pydantic) sont re-sérialisés en chaînes ISO
+    "YYYY-MM-DD" → les validateurs métier (validate_create/validate_consent)
+    continuent de recevoir des strings, inchangés.
+    """
+    return payload.model_dump(exclude_unset=True, mode="json")
 
 
 # ----------------------------------------------------------------------

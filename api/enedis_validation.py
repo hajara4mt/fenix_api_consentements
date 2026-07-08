@@ -21,6 +21,7 @@ import pandas as pd
 # ----------------------------------------------------------------------
 
 ID_PDL_MAX_LEN = 14          # colonne id_pdl varchar(14)
+PLATFORM_CODE_MAX_LEN = 10   # colonne platform_code varchar(10)
 CIVILITES = {"M", "MME"}
 
 # Le partenaire est restreint à une liste fermée (un seul aujourd'hui : ifpeb).
@@ -35,6 +36,7 @@ PRENOM_MAX_LEN = 50
 ALLOWED_CONSENT_FIELDS = {
     "id_pdl",
     "partner",
+    "platform_code",
     "date_signature_mandat",
     "date_debut_autorisation",
     "date_fin_autorisation",
@@ -115,6 +117,14 @@ def validate_consent(body) -> tuple[str, dict]:
             "Le champ partner doit être l'un de : " + ", ".join(sorted(PARTENAIRES_AUTORISES)) + ".",
         )
 
+    # --- platform_code (varchar(10), obligatoire, non modifiable ensuite) ---
+    platform_code = str(_require(body, "platform_code")).strip()
+    if len(platform_code) > PLATFORM_CODE_MAX_LEN:
+        raise ValidationError(
+            "platform_code",
+            f"Le champ platform_code ne doit pas dépasser {PLATFORM_CODE_MAX_LEN} caractères.",
+        )
+
     # --- dates ---
     d_signature = _parse_date("date_signature_mandat", _require(body, "date_signature_mandat"))
     d_debut = _parse_date("date_debut_autorisation", _require(body, "date_debut_autorisation"))
@@ -171,6 +181,7 @@ def validate_consent(body) -> tuple[str, dict]:
     fields = {
         "id_pdl": id_pdl,
         "partner": partner,
+        "platform_code": platform_code,
         "date_signature_mandat": d_signature,
         "date_debut_autorisation": d_debut,
         "date_fin_autorisation": d_fin,
