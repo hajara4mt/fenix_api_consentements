@@ -151,8 +151,10 @@ champs toujours présents, `null` si non applicable).
 `statut` ∈ les **8 états internes BRUTS** : `nouveau`, `A valider`, `A revérifier`,
 `Active`, `Refusée`, `Révoquée`, `Obsolète`, `résilié` (exposés tels quels, **sans mapping**).
 
-`message_erreur` : traduit depuis les codes ADICT (best-effort — le pipeline ne
-stocke pas encore de code propre ; cf. `api/adict_messages.py`).
+`message_erreur` : erreur GRDF **brute**, renvoyée telle quelle **sans aucun
+mapping** (cf. `api/adict_messages.py`). C'est soit l'objet GRDF complet
+(`{"code_statut_traitement": "...", "message_retour_traitement": "..."}`), soit
+un message texte simple, soit `null` si pas d'erreur.
 
 | Code | Cas |
 |---|---|
@@ -174,7 +176,10 @@ stocke pas encore de code propre ; cf. `api/adict_messages.py`).
   "date_fin_droit_acces": "2029-05-01",
   "date_creation": "2026-04-20T10:00:00Z",
   "derniere_maj": "2026-04-21T04:01:30Z",
-  "message_erreur": null
+  "message_erreur": {
+    "code_statut_traitement": "2000000010",
+    "message_retour_traitement": "Une erreur technique est survenue."
+  }
 }
 ```
 
@@ -230,7 +235,7 @@ api/
   consos_reader.py         # lecture du parquet consos_publiees
   validation.py            # règles de validation + normalisation (create + patch)
   ip_filter.py             # whitelist IP applicative (ALLOWED_IPS)
-  adict_messages.py        # traduction codes ADICT → message_erreur
+  adict_messages.py        # message_erreur GRDF brut (aucun mapping)
 shared/                    # VENDORÉ depuis pipeline-grdf-preprod
   config.py
   registry_dao.py          # écriture lease-safe de droits_acces.parquet

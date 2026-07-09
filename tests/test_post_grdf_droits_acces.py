@@ -435,18 +435,22 @@ def test_handle_get_statut_brut(mocker):
     assert body["statut"] == "A revérifier"
 
 
-def test_handle_get_message_erreur_traduit(mocker):
+def test_handle_get_message_erreur_brut(mocker):
+    """L'erreur GRDF est exposée BRUTE (objet complet), sans mapping."""
     import api.grdf_droits_acces as handler
     mocker.patch.object(
         handler.registry_dao, "get",
         return_value=_stored_record(
             etat_droit_acces="A revérifier",
-            message_erreur_declare='{"code":"1000003","detail":"..."}',
+            message_erreur_declare='{"code_statut_traitement": "2000000010", "message_retour_traitement": "Une erreur technique est survenue."}',
         ),
     )
     body, status = handler.handle_get(FakeReq(None), "GI12345678901234")
     assert status == 200
-    assert body["message_erreur"] == "Compteur non accrédité pour la collecte de données"
+    assert body["message_erreur"] == {
+        "code_statut_traitement": "2000000010",
+        "message_retour_traitement": "Une erreur technique est survenue.",
+    }
 
 
 def test_handle_get_404(mocker):
@@ -1042,24 +1046,22 @@ def test_consommations_403_ip(mocker, monkeypatch):
 
 
 # ----------------------------------------------------------------------
-# adict_messages — traduction
+# adict_messages — erreur GRDF brute (aucun mapping)
 # ----------------------------------------------------------------------
 
-def test_translate_adict():
-    from api.adict_messages import translate_adict, MESSAGE_INCONNU
-    assert translate_adict("1000007") == "Compteur plus accrédité, autorisation expirée"
-    assert translate_adict("code_bidon") == MESSAGE_INCONNU
-    assert translate_adict(None) is None
-    assert translate_adict("") is None
-
-
 def test_resolve_message_erreur():
-    from api.adict_messages import resolve_message_erreur, MESSAGE_INCONNU
-    # champ propre prioritaire
-    assert resolve_message_erreur({"code_adict_declare": "1000008"}) == "Aucune donnée disponible pour ce compteur"
-    # best-effort dans le message brut
-    assert resolve_message_erreur({"message_erreur_declare": "... Operation Denied ..."}) == "Déclaration rejetée par le distributeur"
-    # message présent mais code inconnu
-    assert resolve_message_erreur({"message_erreur_declare": "boom"}) == MESSAGE_INCONNU
-    # aucun indice
+    from api.adict_messages import resolve_message_erreur
+    # body GRDF JSON → objet brut renvoyé tel quel
+    assert resolve_message_erreur(
+        {"message_erreur_declare": '{"code_statut_traitement": "2000000010", "message_retour_traitement": "Une erreur technique est survenue."}'}
+    ) == {
+        "code_statut_traitement": "2000000010",
+        "message_retour_traitement": "Une erreur technique est survenue.",
+    }
+    # message texte simple non-JSON → renvoyé en chaîne
+    assert resolve_message_erreur({"message_erreur_declare": "Champ manquant : raison_sociale_du_titulaire"}) == "Champ manquant : raison_sociale_du_titulaire"
+    # "null" / vide → None
+    assert resolve_message_erreur({"message_erreur_declare": "null"}) is None
+    assert resolve_message_erreur({"message_erreur_declare": ""}) is None
+    # aucune erreur → None
     assert resolve_message_erreur({"etat_droit_acces": "Active"}) is None

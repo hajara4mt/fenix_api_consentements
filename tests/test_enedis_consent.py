@@ -311,7 +311,10 @@ def test_get_consent_message_erreur_brut(mocker):
         return_value=pd.DataFrame([_pdl_row(statut="erreur", erreur=erreur_json)]),
     )
     body, _ = h.handle_get_consent(FakeReq(None), "00000000001965")
-    assert body["message_erreur"] == "PDL non éligible"
+    assert body["message_erreur"] == {
+        "code_statut_traitement": "SGT450",
+        "message_retour_traitement": "PDL non éligible",
+    }
 
 
 def test_get_consent_404(mocker):

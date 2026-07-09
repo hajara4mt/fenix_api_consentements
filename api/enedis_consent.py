@@ -165,15 +165,15 @@ def _fmt_dt(value):
 
 def _message_erreur(value):
     """Colonne erreur (JSON {code_statut_traitement, message_retour_traitement})
-    → message brut (message_retour_traitement). None si pas d'erreur."""
+    → objet brut renvoyé tel quel (aucun mapping). None si pas d'erreur."""
     if value is None or pd.isna(value):
         return None
     s = str(value).strip()
     if not s or s.lower() == "null":
         return None
     try:
-        return json.loads(s).get("message_retour_traitement") or None
-    except (json.JSONDecodeError, AttributeError, TypeError):
+        return json.loads(s)
+    except (json.JSONDecodeError, TypeError):
         return s
 
 
