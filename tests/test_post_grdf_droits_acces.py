@@ -148,9 +148,16 @@ def test_validate_date_fin_avant_debut():
     assert exc.value.champ == "date_fin_droit_acces"
 
 
-def test_validate_date_fin_depasse_3_ans():
+def test_validate_date_fin_longue_duree_ok():
+    # plus de plafond de durée : une fin à +10 ans est acceptée (seul date_fin > date_debut compte)
+    _, fields = validate_create(_valid_body(date_fin_droit_acces="2036-05-01"))
+    assert fields["date_fin_droit_acces"] == "2036-05-01"
+
+
+def test_validate_date_fin_avant_debut_rejetee():
+    # la cohérence reste : date_fin doit être strictement > date_debut
     with pytest.raises(ValidationError) as exc:
-        validate_create(_valid_body(date_fin_droit_acces="2030-05-02"))
+        validate_create(_valid_body(date_debut_droit_acces="2026-05-01", date_fin_droit_acces="2026-04-01"))
     assert exc.value.champ == "date_fin_droit_acces"
 
 
@@ -690,15 +697,15 @@ def test_handle_patch_400_email_invalide(mocker):
     upsert.assert_not_called()
 
 
-def test_handle_patch_400_croise_3ans(mocker):
+def test_handle_patch_longue_duree_ok(mocker):
     import api.grdf_droits_acces as h
-    mocker.patch.object(h.registry_dao, "upsert")
-    # existant date_debut=2026-05-01 ; on patche date_fin à +4 ans → 400
+    upsert = mocker.patch.object(h.registry_dao, "upsert")
+    # plus de plafond : patcher date_fin à +10 ans (existant date_debut=2026-05-01) est accepté
     mocker.patch.object(h.registry_dao, "get", return_value=_stored_record())
 
-    body, status = h.handle_patch(FakeReq({"date_fin_droit_acces": "2030-06-01"}), "GI12345678901234")
-    assert status == 400
-    assert body["champ"] == "date_fin_droit_acces"
+    body, status = h.handle_patch(FakeReq({"date_fin_droit_acces": "2036-06-01"}), "GI12345678901234")
+    assert status == 200
+    upsert.assert_called_once()
 
 
 def test_handle_patch_400_body_vide(mocker):

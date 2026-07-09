@@ -13,7 +13,7 @@ Règles métier (alignées sur declare_pce / NiFi) :
   - platform_code     : obligatoire, max 10 caractères (varchar(10)) ; non
     modifiable ensuite (absent de la whitelist PATCH)
   - raison_sociale_du_titulaire OU nom_titulaire : au moins l'un des deux
-  - date_fin_droit_acces : > date_debut_droit_acces ET ≤ date_debut + 3 ans
+  - date_fin_droit_acces : > date_debut_droit_acces (aucun plafond de durée)
   - au moins un des 4 périmètres à true
   - role_tiers N'EST PAS demandé ici : la route l'assigne automatiquement
     (cf. handler) à AUTORISE_CONTRAT_FOURNITURE.
@@ -25,8 +25,6 @@ nom du champ fautif pour construire la réponse 400 documentée.
 import math
 import re
 from datetime import datetime
-
-from dateutil.relativedelta import relativedelta
 
 # ----------------------------------------------------------------------
 # Constantes de validation
@@ -40,7 +38,6 @@ PARTENAIRES_AUTORISES = {"ifpeb"}
 COURRIEL_MAX_LEN = 100
 RAISON_SOCIALE_MAX_LEN = 200
 NOM_TITULAIRE_MAX_LEN = 40
-MAX_DROIT_ACCES_YEARS = 3    # date_fin ≤ date_debut + 3 ans (limite GRDF)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _CODE_POSTAL_RE = re.compile(r"^\d{5}$")
@@ -179,11 +176,6 @@ def validate_create(body) -> tuple[str, dict]:
         raise ValidationError(
             "date_fin_droit_acces",
             "La date_fin_droit_acces doit être strictement postérieure à date_debut_droit_acces.",
-        )
-    if d_fin > d_debut + relativedelta(years=MAX_DROIT_ACCES_YEARS):
-        raise ValidationError(
-            "date_fin_droit_acces",
-            f"La date_fin_droit_acces ne peut pas dépasser date_debut_droit_acces + {MAX_DROIT_ACCES_YEARS} ans.",
         )
 
     # --- périmètre des données de conso ---
@@ -328,11 +320,6 @@ def validate_patch(provided: dict, existing: dict) -> dict:
                 raise ValidationError(
                     "date_fin_droit_acces",
                     "La date_fin_droit_acces doit être strictement postérieure à date_debut_droit_acces.",
-                )
-            if df > dd + relativedelta(years=MAX_DROIT_ACCES_YEARS):
-                raise ValidationError(
-                    "date_fin_droit_acces",
-                    f"La date_fin_droit_acces ne peut pas dépasser date_debut_droit_acces + {MAX_DROIT_ACCES_YEARS} ans.",
                 )
 
     # --- titulaire : au moins un sur le merge ---

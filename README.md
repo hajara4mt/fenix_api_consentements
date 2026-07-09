@@ -103,7 +103,7 @@ réinitialisé.
   `date_fin_droit_acces`, `perim_donnees_conso_debut`, `perim_donnees_conso_fin`,
   `raison_sociale_du_titulaire`, `nom_titulaire`, les 4 `perim_donnees_*`.
 - Validation **partielle + croisée** sur le merge (ex: patcher `date_fin` vérifie
-  les 3 ans avec le `date_debut` existant).
+  qu'elle reste `> date_debut` existant — aucun plafond de durée).
 - `200` : `{ id_pce, statut:"nouveau", message, derniere_maj }`.
 - `400` `CHAMP_NON_MODIFIABLE` (champ interdit) · `400` `CHAMP_INVALIDE` (format/règle)
   · `403` · `404` `PCE_INTROUVABLE`.
@@ -198,7 +198,7 @@ API mais les noms canoniques du storage :
 **Obligatoires** : `id_pce` (≤ 20 car.), `partner` (≤ 50), `platform_code`
 (≤ 10 car., **non modifiable** ensuite), `courriel_titulaire`
 (email, ≤ 100), `code_postal` (5 chiffres), `date_debut_droit_acces`,
-`date_fin_droit_acces` (≤ début + 3 ans), `perim_donnees_conso_debut`,
+`date_fin_droit_acces` (> début), `perim_donnees_conso_debut`,
 `perim_donnees_conso_fin`, et **au moins un** de `raison_sociale_du_titulaire`
 (≤ 200) / `nom_titulaire` (≤ 40).
 
