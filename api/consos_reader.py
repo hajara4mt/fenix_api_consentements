@@ -53,7 +53,7 @@ def _consos_publiees_blob_path(sensor_id: str) -> str:
 
 def read_consos_publiees(sensor_id: str) -> Optional[list[dict]]:
     """
-    Lit le parquet consos_publiees d'un PCE.
+    Lit le parquet consos_publiees d'un PCE (GRDF).
 
     Returns:
         list[dict] des intervalles (peut être vide si parquet présent mais vide),
@@ -72,4 +72,58 @@ def read_consos_publiees(sensor_id: str) -> Optional[list[dict]]:
     table = pq.read_table(io.BytesIO(data))
     rows = table.to_pandas().to_dict(orient="records")
     logger.info("consos_publiees lues pour %s : %d intervalle(s)", sensor_id, len(rows))
+    return rows
+
+
+def _iso_date(value) -> Optional[str]:
+    """Normalise une date Delta (date32/Timestamp/date/str) en 'YYYY-MM-DD'. None si vide."""
+    import pandas as pd
+
+    if value is None:
+        return None
+    try:
+        ts = pd.to_datetime(value, errors="coerce")
+    except (ValueError, TypeError):
+        return None
+    if pd.isna(ts):
+        return None
+    return ts.date().isoformat()
+
+
+def read_consos_enedis(sensor_id: str) -> Optional[list[dict]]:
+    """
+    Lit les mesures Enedis (table Delta `donnees_mesures`) d'un PDL et ne garde
+    que les lignes agrégées `label == "TOTAL"` (une valeur de conso par période).
+
+    Mappe vers la forme COMMUNE {date_debut, date_fin, consommation} : la valeur
+    `val` est renvoyée BRUTE (aucune transformation, aucun parsing). L'unité n'est
+    pas stockée → le handler applique "kWh" par défaut, comme GRDF.
+
+    sensor_id = id_pdl (14 chiffres). Filtre sur `id_pdl` (clé de partition).
+
+    Returns:
+        list[dict] (peut être vide), None si aucune mesure pour ce PDL ou table
+        absente (→ 404 côté handler).
+    """
+    from shared import adls_client  # import tardif (dépend de settings/deltalake)
+
+    try:
+        df = adls_client.read_table_filtered("donnees_mesures", "id_pdl", "=", sensor_id)
+    except Exception as exc:  # table absente, backend indisponible, etc.
+        logger.info("Lecture donnees_mesures impossible pour id_pdl=%s : %s", sensor_id, exc)
+        return None
+
+    if df is None or len(df) == 0:
+        return None
+
+    total = df[df["label"] == "TOTAL"]
+    rows = [
+        {
+            "date_debut": _iso_date(r.get("date_debut")),
+            "date_fin": _iso_date(r.get("date_fin")),
+            "consommation": r.get("val"),
+        }
+        for _, r in total.iterrows()
+    ]
+    logger.info("donnees_mesures TOTAL pour id_pdl=%s : %d ligne(s)", sensor_id, len(rows))
     return rows

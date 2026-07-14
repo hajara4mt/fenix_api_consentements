@@ -54,9 +54,9 @@ def test_methode_non_autorisee_donne_notre_format():
 
 
 def test_validation_passe_au_handler():
-    # provider invalide → notre 400 CHAMP_INVALIDE (champ provider) via le handler
+    # provider inconnu (ni grdf ni enedis) → notre 400 CHAMP_INVALIDE via le handler
     r = client.get("/api/consommations", params={
-        "provider": "enedis", "sensor_id": "x", "from": "2024-01-01", "to": "2024-06-01",
+        "provider": "foobar", "sensor_id": "x", "from": "2024-01-01", "to": "2024-06-01",
     })
     assert r.status_code == 400
     assert r.json()["erreur"] == "CHAMP_INVALIDE"

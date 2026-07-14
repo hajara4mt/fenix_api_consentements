@@ -52,7 +52,7 @@ python -m uvicorn main:app --reload
 
 > CRUD GRDF complet. ✅
 
-| `GET` | `/api/consommations` | ✅ implémenté (GRDF) |
+| `GET` | `/api/consommations` | ✅ implémenté (GRDF + Enedis) |
 | `POST` | `/api/enedis/consent` | ✅ implémenté (table Delta `pdl`) |
 | `GET` | `/api/enedis/consent/{id_pdl}` | ✅ implémenté |
 | `GET` | `/api/enedis/consents` (liste) | ✅ implémenté |
@@ -70,26 +70,26 @@ python -m uvicorn main:app --reload
 
 ## GET /consommations
 
-Lit les consommations **publiées** d'un compteur depuis le Silver
-(`silver/consos_publiees/id_pce={sensor_id}/data.parquet`) et renvoie les
-**intervalles bruts** (PAS d'agrégation mensuelle).
+Lit les consommations d'un compteur depuis le Silver et renvoie les **périodes
+brutes** (PAS d'agrégation mensuelle). **Forme de réponse IDENTIQUE quel que soit
+le provider.**
 
-- Query params : `provider` (**seul `grdf`** supporté → sinon `400`), `sensor_id`
-  (= `id_pce` brut), `from`, `to` (YYYY-MM-DD, `to > from`).
-- Filtre **« Contenu »** : on garde un intervalle si `date_debut >= from` ET
-  `date_fin <= to` (données strictement bornées dans la fenêtre).
+- Query params : `provider` (**`grdf` ou `enedis`** → sinon `400`), `sensor_id`,
+  `from`, `to` (YYYY-MM-DD, `to > from`).
+- Sources selon `provider` :
+  - **grdf** : `sensor_id` = `id_pce` brut → parquet `silver/consos_publiees/id_pce={sensor_id}/data.parquet` (intervalles bruts).
+  - **enedis** : `sensor_id` = `id_pdl` (14 chiffres) → table Delta `enedis/silver/donnees_mesures`, lignes **`label == "TOTAL"` uniquement**, `val` mappée en `consommation` (**valeur brute**, aucune transformation). Filtre sur `id_pdl` (clé de partition).
+- Filtre **« Contenu »** (identique) : on garde une période si `date_debut >= from`
+  ET `date_fin <= to`.
 - Réponse : `{ provider, sensor_id, from, to, data: [ {date_debut, date_fin,
-  consommation, unite}, ... ] }`. `consommation` déjà en **kWh**.
-- `403` · `404` `SENSOR_INTROUVABLE` (parquet absent) · parquet présent mais
-  fenêtre vide → `200` avec `data: []`.
+  consommation, unite}, ... ] }`. `unite` = **kWh** (défaut).
+- `403` · `404` `SENSOR_INTROUVABLE` (aucune donnée pour ce compteur) · données
+  présentes mais fenêtre vide → `200` avec `data: []`.
 
 ```bash
 curl -i "http://localhost:8000/api/consommations?provider=grdf&sensor_id=GI_TEST_0001&from=2024-01-01&to=2024-06-01"
+curl -i "http://localhost:8000/api/consommations?provider=enedis&sensor_id=00000000001965&from=2024-01-01&to=2024-06-01"
 ```
-
-> ⚠️ **Enedis** : aucune source dans ce périmètre (pipeline GRDF only) →
-> `provider=enedis` renvoie `400` pour l'instant. Le dispatch est prêt à
-> brancher une source Enedis plus tard.
 
 ## PATCH /grdf/droits-acces/{id_pce}
 
@@ -232,7 +232,7 @@ main.py                    # app FastAPI (ASGI) — entrée App Service / uvicor
 api/
   grdf_droits_acces.py     # handlers droits-acces (create/get/list/patch/retry/revoke)
   consommations.py         # handler GET /consommations (lecture Silver)
-  consos_reader.py         # lecture du parquet consos_publiees
+  consos_reader.py         # lecture consos GRDF (parquet) + Enedis (Delta donnees_mesures)
   validation.py            # règles de validation + normalisation (create + patch)
   ip_filter.py             # whitelist IP applicative (ALLOWED_IPS)
   adict_messages.py        # message_erreur GRDF brut (aucun mapping)

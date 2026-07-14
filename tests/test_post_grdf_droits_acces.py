@@ -993,16 +993,110 @@ def test_consommations_404_sensor_introuvable(mocker):
     assert body["sensor_id"] == "GI12345678901234"
 
 
-def test_consommations_400_provider_non_grdf(mocker):
+def test_consommations_400_provider_inconnu(mocker):
     import api.consommations as c
-    read = mocker.patch.object(c, "read_consos_publiees")
+    read_grdf = mocker.patch.object(c, "read_consos_publiees")
+    read_enedis = mocker.patch.object(c, "read_consos_enedis")
 
-    body, status = c.handle_consommations(FakeReq(None, params=_params(provider="enedis")))
+    body, status = c.handle_consommations(FakeReq(None, params=_params(provider="foobar")))
 
     assert status == 400
     assert body["erreur"] == "CHAMP_INVALIDE"
     assert body["champ"] == "provider"
-    read.assert_not_called()
+    read_grdf.assert_not_called()
+    read_enedis.assert_not_called()
+
+
+# --- provider=enedis : même forme de réponse que GRDF -------------------
+
+def _conso_rows_enedis():
+    """Lignes déjà mappées par read_consos_enedis (TOTAL only, val→consommation)."""
+    return [
+        {"date_debut": "2024-01-01", "date_fin": "2024-02-01", "consommation": 923.0},   # dedans
+        {"date_debut": "2024-03-01", "date_fin": "2024-04-01", "consommation": 870.0},   # dedans
+        {"date_debut": "2024-05-01", "date_fin": "2024-07-01", "consommation": 1500.0},  # déborde to
+    ]
+
+
+def test_consommations_enedis_200_meme_forme(mocker):
+    import api.consommations as c
+    mocker.patch.object(c, "read_consos_enedis", return_value=_conso_rows_enedis())
+    grdf = mocker.patch.object(c, "read_consos_publiees")
+
+    body, status = c.handle_consommations(
+        FakeReq(None, params=_params(provider="enedis", sensor_id="00000000001965"))
+    )
+
+    assert status == 200
+    assert body["provider"] == "enedis"
+    assert body["sensor_id"] == "00000000001965"
+    # Contenu : seuls les 2 dans [from, to]
+    debuts = [d["date_debut"] for d in body["data"]]
+    assert debuts == ["2024-01-01", "2024-03-01"]
+    assert body["data"][0]["consommation"] == 923.0
+    assert body["data"][0]["unite"] == "kWh"
+    # forme STRICTEMENT identique à GRDF
+    assert set(body["data"][0].keys()) == {"date_debut", "date_fin", "consommation", "unite"}
+    grdf.assert_not_called()  # provider=enedis ne lit pas la source GRDF
+
+
+@pytest.mark.parametrize("saisi", ["enedis", "ENEDIS", "Enedis", "ENeDis", "  enedis  "])
+def test_consommations_provider_insensible_casse(mocker, saisi):
+    """provider insensible à la casse/espaces → normalisé, réponse cohérente."""
+    import api.consommations as c
+    mocker.patch.object(c, "read_consos_enedis", return_value=_conso_rows_enedis())
+
+    body, status = c.handle_consommations(
+        FakeReq(None, params=_params(provider=saisi, sensor_id="00000000001965"))
+    )
+
+    assert status == 200
+    assert body["provider"] == "enedis"  # toujours renvoyé en minuscules
+
+
+def test_consommations_enedis_404_sensor_introuvable(mocker):
+    import api.consommations as c
+    mocker.patch.object(c, "read_consos_enedis", return_value=None)
+
+    body, status = c.handle_consommations(
+        FakeReq(None, params=_params(provider="enedis", sensor_id="00000000001965"))
+    )
+
+    assert status == 404
+    assert body["erreur"] == "SENSOR_INTROUVABLE"
+
+
+def test_read_consos_enedis_garde_total_et_mappe(mocker):
+    """read_consos_enedis : ne garde que label=TOTAL, mappe val→consommation brut."""
+    import datetime as _dt
+    import pandas as pd
+    import shared.adls_client as adls
+    from api.consos_reader import read_consos_enedis
+
+    df = pd.DataFrame([
+        {"id_pdl": "00000000001965", "label": "TURPE_HCB",
+         "date_debut": _dt.date(2024, 1, 1), "date_fin": _dt.date(2024, 2, 1), "val": 803.0},
+        {"id_pdl": "00000000001965", "label": "FRN_P",
+         "date_debut": _dt.date(2024, 1, 1), "date_fin": _dt.date(2024, 2, 1), "val": 120.0},
+        {"id_pdl": "00000000001965", "label": "TOTAL",
+         "date_debut": _dt.date(2024, 1, 1), "date_fin": _dt.date(2024, 2, 1), "val": 923.0},
+    ])
+    mocker.patch.object(adls, "read_table_filtered", return_value=df)
+
+    rows = read_consos_enedis("00000000001965")
+
+    assert rows == [
+        {"date_debut": "2024-01-01", "date_fin": "2024-02-01", "consommation": 923.0},
+    ]
+
+
+def test_read_consos_enedis_none_si_aucune_ligne(mocker):
+    import pandas as pd
+    import shared.adls_client as adls
+    from api.consos_reader import read_consos_enedis
+
+    mocker.patch.object(adls, "read_table_filtered", return_value=pd.DataFrame())
+    assert read_consos_enedis("00000000009999") is None
 
 
 def test_consommations_400_sensor_manquant(mocker):

@@ -1,14 +1,17 @@
 """
 Handler GET /consommations — consos publiées (Silver), intervalles bruts.
 
-Route PARTAGÉE Enedis/GRDF par le paramètre `provider`, mais seul **grdf** est
-supporté pour l'instant (aucune source Enedis dans ce périmètre) → tout autre
-provider → 400 (synchronisé avec le format d'erreur du reste de l'API).
+Route PARTAGÉE Enedis/GRDF par le paramètre `provider` — **forme de réponse
+IDENTIQUE** quel que soit le provider :
 
-Lit le parquet Silver `consos_publiees` du PCE et renvoie les intervalles
-**tels quels** (PAS d'agrégation mensuelle), bornés dans [from, to] selon la
-règle « Contenu » : on garde un intervalle seulement si
-`date_debut >= from` ET `date_fin <= to`.
+  - **grdf**   : parquet Silver `consos_publiees` du PCE (intervalles bruts).
+  - **enedis** : table Delta `donnees_mesures` du PDL, lignes agrégées
+    `label == "TOTAL"` uniquement, `val` mappée en `consommation` (valeur BRUTE,
+    aucune transformation). Unité non stockée → "kWh" par défaut, comme GRDF.
+
+Dans les deux cas on renvoie les périodes **telles quelles** (PAS d'agrégation
+mensuelle), bornées dans [from, to] selon la règle « Contenu » : on garde une
+période seulement si `date_debut >= from` ET `date_fin <= to`.
 
 Réponse : { provider, sensor_id, from, to, data: [ {date_debut, date_fin,
 consommation, unite}, ... ] }.
@@ -19,8 +22,10 @@ import math
 from datetime import datetime
 from typing import Optional
 
-from .consos_reader import read_consos_publiees
+from .consos_reader import read_consos_enedis, read_consos_publiees
 from .ip_filter import is_ip_allowed
+
+PROVIDERS_SUPPORTES = ("grdf", "enedis")
 
 logger = logging.getLogger(__name__)
 
@@ -81,17 +86,17 @@ def handle_consommations(req) -> tuple[dict, int]:
 
     params = getattr(req, "params", None) or {}
 
-    # --- 2. provider (seul grdf supporté) ---
+    # --- 2. provider (grdf | enedis) ---
     provider = (params.get("provider") or "").strip().lower()
     if not provider:
         return _champ_invalide("provider", "Le champ provider est obligatoire.")
-    if provider != "grdf":
+    if provider not in PROVIDERS_SUPPORTES:
         return _champ_invalide(
             "provider",
-            "Le champ provider doit être 'grdf' (seul grdf est supporté actuellement).",
+            "Le champ provider doit être 'grdf' ou 'enedis'.",
         )
 
-    # --- 3. sensor_id (= id_pce brut) ---
+    # --- 3. sensor_id (= id_pce GRDF brut, ou id_pdl Enedis) ---
     sensor_id = (params.get("sensor_id") or "").strip()
     if not sensor_id:
         return _champ_invalide("sensor_id", "Le champ sensor_id est obligatoire.")
@@ -108,8 +113,11 @@ def handle_consommations(req) -> tuple[dict, int]:
     if to_d <= from_d:
         return _champ_invalide("to", "La date to doit être strictement supérieure à from.")
 
-    # --- 5. Lecture du parquet Silver consos_publiees ---
-    rows = read_consos_publiees(sensor_id)
+    # --- 5. Lecture Silver selon le provider (forme des lignes identique) ---
+    if provider == "enedis":
+        rows = read_consos_enedis(sensor_id)
+    else:
+        rows = read_consos_publiees(sensor_id)
     if rows is None:
         return {
             "erreur": "SENSOR_INTROUVABLE",
@@ -135,7 +143,7 @@ def handle_consommations(req) -> tuple[dict, int]:
     data.sort(key=lambda d: d["date_debut"] or "")
 
     return {
-        "provider": "grdf",
+        "provider": provider,
         "sensor_id": sensor_id,
         "from": from_raw,
         "to": to_raw,

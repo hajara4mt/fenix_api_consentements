@@ -491,41 +491,37 @@ def demande_historique_existe_recente(
     }
 
 
-def write_donnees_mesures(
-    mesures: list[dict],
-    ingestion_date: Optional[date] = None,
-) -> int:
+def write_donnees_mesures(mesures: list[dict]) -> int:
     """Append des mesures dans la table Silver donnees_mesures (F3).
 
-    Fidèle au format pivot Energisme iso-Kafka NiFi strict :
-      Colonnes attendues dans chaque dict : label, val, ts, fmt, uuid, misc
+    Fidèle au format pivot Energisme + bornes de période :
+      Colonnes attendues dans chaque dict :
+        id_pdl, label, val, ts, date_debut, date_fin, fmt, uuid, misc
 
-    Ajoute automatiquement les colonnes traçabilité :
-      - ingestion_date : date du run F3 (clé de partition Delta)
-      - ingestion_ts   : timestamp précis d'écriture
+    Ajoute automatiquement la colonne d'audit :
+      - ingestion_ts : timestamp précis d'écriture
+
+    ⚠️ `ingestion_date` supprimée (artefact Python, jamais une vraie partition).
+       La partition cible = `id_pdl` (1 sous-dossier par compteur).
 
     Args:
         mesures : liste de dicts au format pivot Energisme.
-                  Chaque dict doit contenir : label, val, ts, fmt, uuid, misc
-        ingestion_date : date du run (par défaut, aujourd'hui UTC)
+                  Chaque dict doit contenir :
+                  id_pdl, label, val, ts, date_debut, date_fin, fmt, uuid, misc
 
     Returns:
-        Nombre de lignes insérées (0 si liste vide).
+        Nombre de lignes insérées/mises à jour (0 si liste vide).
     """
     if not mesures:
         logger.info("write_donnees_mesures : liste vide, rien à écrire")
         return 0
 
-    if ingestion_date is None:
-        ingestion_date = datetime.now(timezone.utc).date()
-
     ingestion_ts = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    # Construire le DataFrame avec les 6 colonnes pivot + 2 colonnes traçabilité
     df = pd.DataFrame(mesures)
 
     # Sécurité : vérifier que toutes les colonnes attendues sont présentes
-    expected_cols = {"label", "val", "ts", "fmt", "uuid", "misc"}
+    expected_cols = {"id_pdl", "label", "val", "ts", "date_debut", "date_fin", "fmt", "uuid", "misc"}
     missing = expected_cols - set(df.columns)
     if missing:
         raise ValueError(
@@ -533,20 +529,28 @@ def write_donnees_mesures(
             f"Attendu : {expected_cols}"
         )
 
-    # Ajout des colonnes traçabilité
-    df["ingestion_date"] = ingestion_date
     df["ingestion_ts"] = ingestion_ts
 
     # Ne garder QUE les colonnes du schéma (ordre + drop des éventuelles colonnes extra)
     df = df[[
-        "label", "val", "ts", "fmt", "uuid", "misc",
-        "ingestion_date", "ingestion_ts",
+        "id_pdl", "label", "val", "ts", "date_debut", "date_fin",
+        "fmt", "uuid", "misc", "ingestion_ts",
     ]]
 
-    n = append_rows("donnees_mesures", df, validate=True)
+    # MERGE keep-latest sur (id_pdl, label, ts) :
+    #   - match   → UPDATE (on garde la dernière)
+    #   - no match → INSERT
+    # Table partitionnée par id_pdl (1 sous-dossier par compteur).
+    stats = upsert_rows(
+        "donnees_mesures",
+        df,
+        key_cols=["id_pdl", "label", "ts"],
+        validate=True,
+    )
+    n = stats["inserted"] + stats["updated"]
     logger.info(
-        f"write_donnees_mesures : +{n} mesure(s) insérée(s) "
-        f"(ingestion_date={ingestion_date})"
+        f"write_donnees_mesures : {stats['inserted']} insérée(s), "
+        f"{stats['updated']} mise(s) à jour (keep-latest)"
     )
     return n
 

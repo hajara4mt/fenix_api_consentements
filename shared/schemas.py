@@ -407,36 +407,45 @@ SCHEMA_LOG_ERREUR = pa.schema([
 
 # ─────────────────────────────────────────────────────────────────────────
 # Table 6 : donnees_mesures  (F3 — ConsultationMesures dimanche 1h)
-# Format pivot Energisme iso-Kafka NiFi strict (6 colonnes + 2 ajouts traçabilité)
+# Format pivot Energisme + bornes de période (id_pdl / date_debut / date_fin)
 # ─────────────────────────────────────────────────────────────────────────
 #
-# Fidèle au flux NiFi : code Groovy "Convert to Kafka Format" qui produit :
-#   kafkaArray.add([ts, uuid, val, label, misc, fmt: 1])
+# Fidèle au flux NiFi "Convert to Kafka Format" (label, val, ts, fmt, uuid, misc),
+# ENRICHI de id_pdl (partition + clé MERGE) et des bornes réelles de période
+# date_debut/date_fin — indispensables pour présenter la conso PAR PÉRIODE
+# (le pivot Kafka strict n'avait que `ts`). Doit rester synchronisé avec
+# pipeline_enedis_F1/shared/schemas.py (source de vérité).
 #
-# Path Silver : fenixlake/silver/enedis/donnees_mesures/
-# Partitionnement Delta : ingestion_date (1 dossier par run dominical)
-#
-# Lecture FENIX algo + API : SELECT * WHERE ingestion_date = '2026-06-14'
+# Path Silver : fenixlake/enedis/silver/donnees_mesures/
+# Partitionnement Delta : id_pdl (1 sous-dossier par compteur)
+# Clé d'unicité / MERGE keep-latest : (id_pdl, label, ts)
 SCHEMA_DONNEES_MESURES = pa.schema([
-    # ── 6 champs iso format pivot Energisme (ce que Kafka recevait) ──
+    # ── Compteur : clé de partition + clé de MERGE keep-latest ──
+    pa.field("id_pdl",         pa.string(),         nullable=False,
+             metadata=_meta("varchar(14)", max_length=14)),
+
+    # ── champs iso format pivot Energisme (ce que Kafka recevait) ──
     pa.field("label",          pa.string(),         nullable=True,
-             metadata=_meta("varchar(100)", max_length=100)),  # "TURPE_HCB", "FRN_P", ...
+             metadata=_meta("varchar(100)", max_length=100)),  # "TURPE_HCB", "FRN_P", "TOTAL"
     pa.field("val",            pa.float64(),        nullable=True,
              metadata=_meta("double")),
     pa.field("ts",             pa.timestamp("us"),  nullable=True,
              metadata=_meta("datetime")),     # dateFin - 1 jour
+    # 🆕 Bornes réelles de la période de mesure (conservées depuis le XML CM).
+    pa.field("date_debut",     pa.date32(),         nullable=True,
+             metadata=_meta("date")),         # dateDebut de la période
+    pa.field("date_fin",       pa.date32(),         nullable=True,
+             metadata=_meta("date")),         # dateFin de la période
     pa.field("fmt",            pa.int32(),          nullable=True,
              metadata=_meta("int")),          # toujours 1
     pa.field("uuid",           pa.string(),         nullable=True,
              metadata=_meta("varchar(50)", max_length=50)),    # "enedis_CM_<pdl>"
     pa.field("misc",           pa.string(),         nullable=True,
-             metadata=_meta("varchar(20)", max_length=20)),    # INITIALE/RECTIFIEE/ANNULEE
+             metadata=_meta("varchar(20)", max_length=20)),    # INITIALE/RECTIFIEE/TOTAL_TURPE/TOTAL_FRN
 
-    # ── 2 ajouts maîtrisés pour traçabilité et partitionnement Delta ──
-    pa.field("ingestion_date", pa.date32(),         nullable=False,
-             metadata=_meta("date")),         # date du run F3 (clé de partition)
+    # ── Audit ──
     pa.field("ingestion_ts",   pa.timestamp("us"),  nullable=True,
-             metadata=_meta("datetime")),     # timestamp précis d'ingestion
+             metadata=_meta("datetime")),     # timestamp précis d'écriture
 ])
 
 
