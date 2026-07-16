@@ -84,9 +84,22 @@ def read_table_filtered(
     uri = get_silver_table_uri(name)
     dt = DeltaTable(uri, storage_options=get_storage_options())
 
-    # deltalake supporte les filtres via to_pandas(partitions=...) mais c'est
-    # limité aux colonnes de partition. Plus simple : filtrer en Pandas après lecture.
-    # Pour optimiser plus tard : utiliser pyarrow.dataset avec pushdown predicates.
+    # ── Cas rapide : pushdown partition ───────────────────────────────────
+    # Si la colonne filtrée EST une clé de partition ET l'opérateur est '=',
+    # deltalake ne lit QUE le sous-dossier <colonne>=<valeur>/ (data skipping)
+    # au lieu de charger toute la table. Ex. donnees_mesures : 560k lignes /
+    # 2913 fichiers lus en entier (~15s) → une seule partition id_pdl (<1s).
+    if operator == "=" and column in dt.metadata().partition_columns:
+        df_filtered = dt.to_pandas(
+            partitions=[(column, "=", str(value))]
+        ).reset_index(drop=True)
+        logger.info(
+            "read_table_filtered('%s', %s=%r) via PARTITION pushdown → %d lignes",
+            name, column, value, len(df_filtered),
+        )
+        return df_filtered
+
+    # ── Fallback : colonne non-partition OU opérateur ≠ '=' → inchangé ─────
     df = dt.to_pandas()
 
     ops = {
